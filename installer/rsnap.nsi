@@ -1,5 +1,5 @@
 ; Build: cargo build --release, then makensis installer\rsnap.nsi
-; Output: target\RSnap-<version>-setup.exe
+; Output: dist\RSnap-<version>-setup.exe
 
 Unicode true
 ManifestDPIAware true
@@ -18,7 +18,8 @@ SetCompressor /SOLID lzma
 !endif
 
 Name "${APP}"
-OutFile "..\target\${APP}-${VERSION}-setup.exe"
+!system 'mkdir "..\dist" 2>nul'
+OutFile "..\dist\${APP}-${VERSION}-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\${APP}"
 InstallDirRegKey HKCU "${UNINST_KEY}" "InstallLocation"
 RequestExecutionLevel user
@@ -34,19 +35,21 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
-!include "Sections.nsh"
 !include "FileFunc.nsh"
 !include "WinMessages.nsh"
 
 !define MUI_ICON "..\assets\rsnap.ico"
 !define MUI_UNICON "..\assets\rsnap.ico"
 !define MUI_ABORTWARNING
-!define MUI_COMPONENTSPAGE_NODESC
+
+; Two ticked boxes on the last page. The "readme" slot is the standard NSIS way to get a second one.
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "Start RSnap now"
+!define MUI_FINISHPAGE_SHOWREADME
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Start with Windows"
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION EnableAutostart
 
 !insertmacro MUI_PAGE_LICENSE "..\LICENSE"
-!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -70,14 +73,25 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
   ${EndIf}
 !macroend
 
-Section "RSnap" SecApp
-  SectionIn RO
+; Same value the tray menu's "Start with Windows" writes, so the two stay in sync.
+Function EnableAutostart
+  WriteRegStr HKCU "${RUN_KEY}" "${APP}" '"$INSTDIR\${EXE}"'
+FunctionEnd
+
+Section "RSnap"
   !insertmacro CloseRSnap
 
   SetOutPath "$INSTDIR"
   File "..\target\release\${EXE}"
   File "..\LICENSE"
   WriteUninstaller "$INSTDIR\uninstall.exe"
+  CreateShortcut "$SMPROGRAMS\${APP}.lnk" "$INSTDIR\${EXE}"
+
+  ; The finish page decides autostart; a silent install turns it on.
+  DeleteRegValue HKCU "${RUN_KEY}" "${APP}"
+  ${If} ${Silent}
+    Call EnableAutostart
+  ${EndIf}
 
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${APP}"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
@@ -91,24 +105,6 @@ Section "RSnap" SecApp
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" $0
-SectionEnd
-
-Section "Start menu shortcut" SecShortcut
-  CreateShortcut "$SMPROGRAMS\${APP}.lnk" "$INSTDIR\${EXE}"
-SectionEnd
-
-; Same value the tray menu's "Start with Windows" writes, so the two stay in sync.
-Section "Start with Windows" SecAutostart
-  WriteRegStr HKCU "${RUN_KEY}" "${APP}" '"$INSTDIR\${EXE}"'
-SectionEnd
-
-Section "-Cleanup"
-  ${IfNot} ${SectionIsSelected} ${SecAutostart}
-    DeleteRegValue HKCU "${RUN_KEY}" "${APP}"
-  ${EndIf}
-  ${IfNot} ${SectionIsSelected} ${SecShortcut}
-    Delete "$SMPROGRAMS\${APP}.lnk"
-  ${EndIf}
 SectionEnd
 
 Section "Uninstall"

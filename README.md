@@ -122,8 +122,8 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
 Requires Windows 10 or 11.
 
 Grab `RSnap-x.y.z-setup.exe` from the releases page and run it. It installs for your user only (no
-admin prompt) into `%LOCALAPPDATA%\Programs\RSnap`, adds a Start menu shortcut and, if you leave the
-box ticked, starts with Windows. Uninstall from Apps & features; snips in `Pictures\RSnap` are left
+admin prompt) into `%LOCALAPPDATA%\Programs\RSnap` and adds a Start menu shortcut. The last page has
+**Start with Windows** ticked; you can flip it later from the tray menu. Uninstall from Apps & features; snips in `Pictures\RSnap` are left
 alone.
 
 ### Building from source
@@ -135,7 +135,7 @@ Needs Rust (stable, MSVC toolchain) and, for the installer, [NSIS](https://nsis.
 git clone https://github.com/EmperorHeyman/RSnap.git
 cd RSnap
 cargo build --release                 # target\release\rsnap.exe
-makensis installer\rsnap.nsi          # target\RSnap-<version>-setup.exe
+makensis installer\rsnap.nsi          # dist\RSnap-<version>-setup.exe
 ```
 
 The exe on its own is fully portable: run it from anywhere and use the tray menu's
