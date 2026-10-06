@@ -1,6 +1,6 @@
 # OCR snips: design
 
-Date: 2026-10-06 · Status: approved in chat, awaiting spec review
+Date: 2026-10-06 · Status: approved; updated with spike results
 
 ## Why
 
@@ -97,16 +97,25 @@ Shipped as is; Shift would only need a fresh press if this turns out to happen i
 `pub fn recognize(px: &[u8], w: u32, h: u32) -> Option<String>`. Input is the top-down BGRA from
 `Shot::pixels`.
 
-1. Join the WinRT apartment as MTA for the duration of the call (balanced uninitialize on return).
-2. Scale the image ×`OCR_SCALE` (starting value 2) with a halftone stretch when the scaled size
-   still fits `OcrEngine::MaxImageDimension` (10000 px); otherwise use native size. Windows OCR is
-   known to miss small screen text, so the default is to upscale. Validated against sample snips
-   (screen text at 100% and 150% scaling, a photographed label); if ×2 doesn't beat ×1, the scaling
-   step is removed rather than kept on faith.
-3. Wrap the pixels in a `SoftwareBitmap` as `Bgra8` with alpha **ignored** (BitBlt leaves the alpha
-   byte at 0, which would otherwise read as fully transparent).
+1. Join the COM apartment as MTA for the duration of the call (balanced uninitialize on return).
+2. Convert to grayscale and enlarge ×`OCR_SCALE` (2.0) with bilinear filtering, in Rust. If that
+   would pass `OcrEngine::MaxImageDimension` (10000 px) on either side, use the largest scale that
+   fits instead (an 8320 px wide desktop gets 1.2×).
+3. Wrap the result in a `SoftwareBitmap` as `Gray8`. Grayscale is a quarter of the memory of BGRA,
+   which matters once a big snip is doubled, and sidesteps BitBlt's zero alpha byte.
 4. Engine: `OcrEngine::TryCreateFromUserProfileLanguages()`, falling back to the first entry of
    `AvailableRecognizerLanguages`. No engine → `None`.
+
+Spike results behind steps 2–3 (Segoe UI rendered with GDI, this machine's Czech recognizer):
+
+| Text size | ×1 | ×2 GDI halftone, BGRA | ×2 bilinear, gray | ×3 / ×4 bilinear |
+|---|---|---|---|---|
+| 11 px | nothing | digits dropped | perfect | perfect / perfect |
+| 12–13 px | nothing | perfect | perfect | perfect |
+| 10 px | not tried | 2 of 3 words lost | one misread | more misreads than ×2 |
+
+Czech diacritics read perfectly at 12 px. OCR itself takes 5–15 ms on a typical snip; a full
+2560×1440 snip at ×2 takes ~105 ms including scaling.
 5. `RecognizeAsync(..).get()`: blocking is fine on the worker thread.
 6. Text = each `OcrLine::Text()` joined with `\r\n`, trimmed. Empty → `None`.
 
@@ -138,7 +147,8 @@ worker frees the box itself.
   cap). The stock user32 edit box: no comctl32 load.
 - Font: Segoe UI, `POPUP_FONT_PT` (starting value 10) scaled to the DPI of the snip's monitor,
   with a small inner margin (`EM_SETMARGINS`). The font is deleted with the window.
-- Text: the recognized text, caret at the end, nothing selected.
+- Text: the recognized text, caret at the start, nothing selected (so a long text that scrolls
+  shows its first lines).
 
 ### Size and position
 
@@ -189,8 +199,8 @@ a null check per message.
 
 ## Configuration (config.rs)
 
-New constants, each with a comment like the existing ones: `OCR_SCALE`, `POPUP_FONT_PT`,
-`POPUP_MIN_W`, `POPUP_MAX_W`, `POPUP_MAX_LINES`. Final values are set during implementation.
+New constants, each with a comment like the existing ones: `OCR_SCALE` (2.0), `POPUP_FONT_PT`
+(10), `POPUP_MIN_W` (240), `POPUP_MAX_W` (640), `POPUP_MAX_LINES` (12).
 
 ## Testing
 
@@ -210,5 +220,5 @@ New constants, each with a comment like the existing ones: `OCR_SCALE`, `POPUP_F
 
 README: usage table row, "What lands on the clipboard" note for text snips, a "How it works" bullet
 for OCR and the popup, the new config constants, `ocr.rs` and `popup.rs` in the project structure,
-the `windows` crate in Tech, updated Numbers, and the Ctrl+V gotcha and Latin-only limit in Known
-limits.
+the `windows` crate in Tech, updated Numbers, and in Known limits: the Ctrl+V gotcha, Latin-only
+recognition, 1/l/I confusion in serials, and that snips wider than 5000 px get less enlargement.
