@@ -145,7 +145,8 @@ fn hdrop(path: &Path) -> Option<HGLOBAL> {
 mod tests {
     use super::*;
 
-    // These overwrite your clipboard, so they only run on request: `cargo test -- --ignored`.
+    // These overwrite your clipboard, so they only run on request, one at a time because they all
+    // share it: `cargo test -- --ignored --test-threads=1`.
 
     fn read_text() -> String {
         unsafe {

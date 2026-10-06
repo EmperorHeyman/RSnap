@@ -123,9 +123,10 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
   so the keyboard hook is never kept waiting. Then RSnap hands its unused memory back to Windows.
 - **Text.** Shift-release sends the snip through `Windows.Media.Ocr`, the engine Windows already
   ships, so no models are bundled. The snip is converted to grayscale and enlarged 2× first, which
-  takes 12 px screen text from unreadable to exact. The engine is created per snip and released, so
-  nothing stays loaded. The popup is a plain Windows edit box, and the only RSnap window that takes
-  focus.
+  takes 12 px screen text from unreadable to exact. The engine is created per snip and released;
+  Windows keeps the OCR library mapped after the first text snip, and the trim after each snip pages
+  it out of the working set. The popup is a plain Windows edit box, and the only RSnap window that
+  takes focus.
 - **DPI.** Per-Monitor V2 awareness, declared in the embedded manifest. Every coordinate is a physical
   pixel, so a 150% laptop screen next to a 100% monitor captures at native resolution on both, with
   no scaling blur and no offset selection.
@@ -143,7 +144,7 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
 | **Unsigned** | SmartScreen may warn the first time you run the installer. |
 | **Text: pasting straight away** | The popup has focus, so Ctrl+V right after a text snip pastes into the popup. Click where you want to paste first; that also closes it. |
 | **Text: languages** | Windows only reads scripts it has an OCR pack for. Latin script works with the Czech or English pack; Chinese, Cyrillic and others need their pack installed. |
-| **Text: 1, l and I** | Serial numbers can come back with these swapped. Fix it in the popup and press Enter. |
+| **Text: 1, l, I and decimals** | Serial numbers can come back with these swapped, and small decimal points can be dropped or, with the Czech recognizer, turned into commas (`51.2` → `512`, `14.3` → `14,3`). Fix it in the popup and press Enter. |
 | **Text: very wide snips** | The engine takes at most 10,000 px a side, so snips wider than 5,000 px are enlarged less than 2× and small text in them may be missed. |
 
 ---

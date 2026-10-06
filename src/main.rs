@@ -93,7 +93,11 @@ unsafe extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
     unsafe {
         match msg {
             WM_APP_SNIP => overlay::start(),
-            WM_APP_CANCEL => overlay::cancel(),
+            // Esc: whichever of the crosshair and the text popup is up.
+            WM_APP_CANCEL => {
+                overlay::cancel();
+                popup::close();
+            }
             WM_APP_TRAY => tray::on_event(hwnd, lp),
             WM_APP_OCR => popup::on_text(lp),
             WM_DESTROY => PostQuitMessage(0),
@@ -132,22 +136,57 @@ pub fn deliver_text(shot: capture::Shot, sel: RECT) {
     drop(shot);
     match text {
         Some(text) => {
-            clipboard::set_text(&text);
+            copy_text(&text);
             let msg = Box::into_raw(Box::new((text, sel)));
             let main = MAIN_WINDOW.load(Relaxed);
             if unsafe { PostMessageW(main, WM_APP_OCR, 0, msg as LPARAM) } == 0 {
                 drop(unsafe { Box::from_raw(msg) });
             }
         }
-        None => unsafe {
-            MessageBeep(MB_ICONWARNING);
-        },
+        None => warn(),
     }
     trim();
+}
+
+/// Text on the clipboard, or a warning beep if another app kept it locked through every retry,
+/// so a paste never silently brings back the previous clipboard. Worker threads only.
+pub fn copy_text(text: &str) -> bool {
+    let ok = clipboard::set_text(text);
+    if !ok {
+        warn();
+    }
+    ok
+}
+
+fn warn() {
+    unsafe { MessageBeep(MB_ICONWARNING) };
 }
 
 pub fn trim() {
     if config::TRIM_AFTER_SNIP {
         unsafe { SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows_sys::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
+
+    /// Another app holds the clipboard past every retry. Needs the real clipboard, alone:
+    /// `cargo test -- --ignored --test-threads=1`.
+    #[test]
+    #[ignore]
+    fn copy_text_reports_a_locked_clipboard() {
+        let (opened, wait) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || unsafe {
+            assert!(OpenClipboard(null_mut()) != 0);
+            opened.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            CloseClipboard();
+        });
+        wait.recv().unwrap();
+        assert!(!copy_text("never lands"));
+        holder.join().unwrap();
     }
 }

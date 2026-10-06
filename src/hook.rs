@@ -1,4 +1,5 @@
-//! Low-level keyboard hook: takes Win+Shift+S from Windows and eats Esc while snipping.
+//! Low-level keyboard hook: takes Win+Shift+S from Windows, and eats Esc while snipping or while
+//! the text popup is open.
 
 use std::mem::{size_of, zeroed};
 use std::ptr::null;
@@ -9,7 +10,7 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-use crate::{MAIN_WINDOW, WM_APP_CANCEL, WM_APP_SNIP, config};
+use crate::{MAIN_WINDOW, WM_APP_CANCEL, WM_APP_SNIP, config, popup};
 
 /// True while the crosshair is up.
 pub static ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -25,6 +26,12 @@ pub fn install() {
 
 fn held(vk: VIRTUAL_KEY) -> bool {
     unsafe { GetAsyncKeyState(vk as i32) < 0 }
+}
+
+/// Esc cancels the crosshair or closes the text popup. Taking it here rather than in the popup
+/// means it works even when Windows refused the popup focus.
+fn eats_esc(snipping: bool, popup_open: bool) -> bool {
+    snipping || popup_open
 }
 
 unsafe extern "system" fn proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -52,7 +59,9 @@ unsafe extern "system" fn proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
                     if !down && EAT_S_UP.swap(false, Relaxed) {
                         return 1;
                     }
-                } else if k.vkCode == VK_ESCAPE as u32 && ACTIVE.load(Relaxed) {
+                } else if k.vkCode == VK_ESCAPE as u32
+                    && eats_esc(ACTIVE.load(Relaxed), popup::is_open())
+                {
                     if down {
                         PostMessageW(main, WM_APP_CANCEL, 0, 0);
                     }
@@ -80,5 +89,18 @@ unsafe fn mask_start_menu() {
             };
         }
         SendInput(2, inputs.as_ptr(), size_of::<INPUT>() as i32);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn esc_belongs_to_rsnap_while_crosshair_or_popup_is_up() {
+        assert!(eats_esc(true, false));
+        // The popup may not have focus if Windows refused it; Esc must still close it.
+        assert!(eats_esc(false, true));
+        assert!(!eats_esc(false, false));
     }
 }

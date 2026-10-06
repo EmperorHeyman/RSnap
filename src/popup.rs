@@ -12,13 +12,13 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{EM_GETSEL, EM_SETMARGINS, EM_SETSEL};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, SetFocus, VIRTUAL_KEY, VK_A, VK_CONTROL, VK_ESCAPE, VK_RETURN, VK_SHIFT,
+    GetKeyState, SetFocus, VIRTUAL_KEY, VK_A, VK_CONTROL, VK_RETURN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::w;
 
 use crate::config::{POPUP_FONT_PT, POPUP_MAX_LINES, POPUP_MAX_W, POPUP_MIN_W};
-use crate::{clipboard, hook};
+use crate::hook;
 
 /// Space between the snip and the popup, and around the text inside it, in px at 100% scaling.
 const GAP: i32 = 8;
@@ -191,7 +191,13 @@ fn place(sel: RECT, w: i32, h: i32, work: RECT, gap: i32) -> POINT {
     }
 }
 
-/// Enter, Esc and Ctrl+A for the edit box, checked before TranslateMessage. True when handled.
+/// The keyboard hook runs on this thread too, so it can ask.
+pub fn is_open() -> bool {
+    !POPUP.get().is_null()
+}
+
+/// Enter and Ctrl+A for the edit box, checked before TranslateMessage. True when handled.
+/// Esc never gets here: the keyboard hook takes it, so it closes the popup even without focus.
 pub fn pre_translate(msg: &MSG) -> bool {
     let edit = EDIT.get();
     if edit.is_null() || msg.hwnd != edit || msg.message != WM_KEYDOWN {
@@ -200,7 +206,6 @@ pub fn pre_translate(msg: &MSG) -> bool {
     let held = |vk: VIRTUAL_KEY| unsafe { GetKeyState(vk as i32) } < 0;
     match msg.wParam as VIRTUAL_KEY {
         VK_RETURN if !held(VK_SHIFT) => copy_and_close(edit),
-        VK_ESCAPE => close(),
         // The stock edit box has no select-all shortcut.
         VK_A if held(VK_CONTROL) => unsafe {
             SendMessageW(edit, EM_SETSEL, 0, -1);
@@ -213,10 +218,10 @@ pub fn pre_translate(msg: &MSG) -> bool {
 fn copy_and_close(edit: HWND) {
     let text = chosen_text(edit);
     close();
-    // set_text can wait on a busy clipboard, and the keyboard hook shares this thread.
+    // copy_text can wait on a busy clipboard, and the keyboard hook shares this thread.
     let _ = std::thread::Builder::new()
         .stack_size(256 * 1024)
-        .spawn(move || clipboard::set_text(&text));
+        .spawn(move || crate::copy_text(&text));
 }
 
 /// The selection, or everything when nothing is selected. Includes the user's edits.
