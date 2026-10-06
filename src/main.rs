@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod capture;
 mod clipboard;
@@ -7,6 +7,7 @@ mod encode;
 mod files;
 mod glow;
 mod hook;
+mod ocr;
 mod overlay;
 mod tray;
 

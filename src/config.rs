@@ -28,6 +28,10 @@ pub const TRIM_AFTER_SNIP: bool = true;
 /// Unassigned virtual key tapped so releasing Win doesn't open the Start menu.
 pub const MASK_KEY: u16 = 0xE8;
 
+/// Text snips are enlarged this much before OCR. Windows OCR skips small screen text:
+/// 13 px text read as nothing at 1x and perfectly at 2x; 3x and 4x read worse than 2x.
+pub const OCR_SCALE: f32 = 2.0;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum ClipboardMode {
