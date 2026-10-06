@@ -1,11 +1,11 @@
 # RSnap
 
-> Win+Shift+S without the frozen screen. A 450 KB snipping tool that sits at 0% CPU until you press the shortcut.
+> Win+Shift+S without the frozen screen. A 480 KB snipping tool that sits at 0% CPU until you press the shortcut.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-lightgrey.svg)](#setup)
-[![Binary size](https://img.shields.io/badge/binary-450_KB-blue.svg)](#numbers)
+[![Binary size](https://img.shields.io/badge/binary-480_KB-blue.svg)](#numbers)
 [![Idle RAM](https://img.shields.io/badge/idle_RAM-~1_MB-brightgreen.svg)](#numbers)
 
 ## The problem
@@ -31,6 +31,10 @@ image. Apps that take files get `rsnap_k3x9q2ma.png`; Paint gets pixels.
 
 Hold **Ctrl** when you let go and it's saved to `Pictures\RSnap` as well.
 
+Hold **Shift** instead and you get the text in the snip. It's read by the OCR engine built into
+Windows, so nothing leaves your machine, put on the clipboard, and shown in a small box where you can
+fix a misread before you paste.
+
 When it isn't snipping, it isn't doing anything: no polling, no timers, one thread asleep in the
 message loop. That constraint is the whole point of the project.
 
@@ -43,6 +47,7 @@ message loop. That constraint is the whole point of the project.
 | **Win+Shift+S** | Crosshair. The screen stays live. |
 | **Drag, release** | Snip on the clipboard |
 | **Ctrl + release** | Same, plus saved to `Pictures\RSnap` |
+| **Shift + release** | The text in the snip on the clipboard, plus a popup to fix it or copy part of it |
 | **Esc** or **right-click** | Cancel |
 | **Tray icon, left-click** | Start a snip |
 | **Tray icon, right-click** | Open folder · Start with Windows · Exit |
@@ -59,6 +64,22 @@ The crosshair never takes focus, so the app you were in is still focused and rea
 
 The file lives in `%TEMP%\RSnap` and is deleted after 24 hours. With Ctrl+release it's written to
 `Pictures\RSnap` instead and the clipboard points there.
+
+### Text snips
+
+Shift + release reads the snip with Windows' own OCR, in your Windows display language (Czech
+reads English too). Small screen text is enlarged 2× first, because Windows OCR skips it otherwise.
+Only Unicode text goes on the clipboard, no image. If nothing readable is found you hear a warning
+beep and the clipboard is left alone.
+
+The popup under the snip already has focus:
+
+| Key | Does |
+|---|---|
+| **Enter** | Copies your selection, or everything if nothing is selected (with your fixes), and closes |
+| **Shift+Enter** | New line |
+| **Ctrl+A** / **Ctrl+C** | Select all / copy the selection, popup stays |
+| **Esc**, or click anywhere else | Closes |
 
 ### Clipboard modes
 
@@ -81,9 +102,10 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
 |---|---|
 | Win+Shift+S → crosshair | ~3.3 ms |
 | Release → clipboard ready (500×350 snip) | ~24 ms |
+| Shift-release → text on clipboard (500×350 snip) | ~30 ms |
 | Idle CPU | 0. CPU time didn't move over 45 s idle. |
 | Idle RAM | ~1 MB working set, ~2.4 MB private |
-| Binary | 450 KB, one exe, no runtime |
+| Binary | 480 KB, one exe, no runtime |
 | Accuracy | Pixel-exact against a full-screen capture |
 
 ## How it works
@@ -99,6 +121,11 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
   (`WDA_EXCLUDEFROMCAPTURE`), so they never end up in a snip, or in OBS.
 - **Output.** A short-lived worker thread encodes the PNG, writes the file and fills the clipboard,
   so the keyboard hook is never kept waiting. Then RSnap hands its unused memory back to Windows.
+- **Text.** Shift-release sends the snip through `Windows.Media.Ocr`, the engine Windows already
+  ships, so no models are bundled. The snip is converted to grayscale and enlarged 2× first, which
+  takes 12 px screen text from unreadable to exact. The engine is created per snip and released, so
+  nothing stays loaded. The popup is a plain Windows edit box, and the only RSnap window that takes
+  focus.
 - **DPI.** Per-Monitor V2 awareness, declared in the embedded manifest. Every coordinate is a physical
   pixel, so a 150% laptop screen next to a 100% monitor captures at native resolution on both, with
   no scaling blur and no offset selection.
@@ -114,6 +141,10 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
 | **Recording a demo** | The glow is hidden from screen capture by design, so OBS and ShareX won't see it. |
 | **HDR** | Snips come out tone-mapped to SDR. |
 | **Unsigned** | SmartScreen may warn the first time you run the installer. |
+| **Text: pasting straight away** | The popup has focus, so Ctrl+V right after a text snip pastes into the popup. Click where you want to paste first; that also closes it. |
+| **Text: languages** | Windows only reads scripts it has an OCR pack for. Latin script works with the Czech or English pack; Chinese, Cyrillic and others need their pack installed. |
+| **Text: 1, l and I** | Serial numbers can come back with these swapped. Fix it in the popup and press Enter. |
+| **Text: very wide snips** | The engine takes at most 10,000 px a side, so snips wider than 5,000 px are enlarged less than 2× and small text in them may be missed. |
 
 ---
 
@@ -129,7 +160,8 @@ alone.
 ### Building from source
 
 Needs Rust (stable, MSVC toolchain) and, for the installer, [NSIS](https://nsis.sourceforge.io/)
-(`winget install NSIS.NSIS`).
+(`winget install NSIS.NSIS`). If your default Rust toolchain is GNU, run
+`rustup override set stable-x86_64-pc-windows-msvc` in the repo first.
 
 ```powershell
 git clone https://github.com/EmperorHeyman/RSnap.git
@@ -159,6 +191,10 @@ rebuild.
 | `TEMP_RETENTION_SECS` | 24 h | How long clipboard files are kept |
 | `TRIM_AFTER_SNIP` | `true` | Give memory back to Windows after each snip |
 | `MASK_KEY` | `0xE8` | Unassigned key that keeps the Start menu shut |
+| `OCR_SCALE` | `2.0` | How much text snips are enlarged before OCR |
+| `POPUP_FONT_PT` | `10` | Popup font size, in points |
+| `POPUP_MIN_W` / `POPUP_MAX_W` | `240` / `640` | Popup width limits, in px at 100% scaling |
+| `POPUP_MAX_LINES` | `12` | Lines shown before the popup scrolls |
 
 ## Project structure
 
@@ -171,7 +207,9 @@ RSnap/
 │   ├── glow.rs        # The glow frame
 │   ├── capture.rs     # BitBlt from the screen
 │   ├── encode.rs      # PNG and DIB
-│   ├── clipboard.rs   # File + PNG + DIB on the clipboard
+│   ├── ocr.rs         # Text from pixels with the Windows OCR engine
+│   ├── popup.rs       # The editable popup for OCR'd text
+│   ├── clipboard.rs   # File + PNG + DIB, or text, on the clipboard
 │   ├── files.rs       # Random names, folders, temp cleanup
 │   ├── tray.rs        # Tray icon, menu, autostart
 │   └── config.rs      # Every setting
@@ -183,7 +221,8 @@ RSnap/
 
 ## Tech
 
-Rust, raw Win32 through `windows-sys`, and the `png` crate. No GUI framework, no async runtime, no
+Rust, raw Win32 through `windows-sys`, the `windows` crate for the WinRT OCR engine, and the `png`
+crate. No GUI framework, no async runtime, no
 tray-icon crate. The CRT is linked statically, so it's a single exe with nothing to install
 alongside it.
 
