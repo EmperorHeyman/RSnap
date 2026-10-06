@@ -140,8 +140,9 @@ pub fn deliver(shot: capture::Shot, save: bool) {
 
 /// The Shift-release worker: OCR, text on the clipboard, then the popup on the main thread.
 pub fn deliver_text(shot: capture::Shot, sel: RECT) {
-    let lang = settings::current().ocr_language;
-    let text = ocr::recognize(shot.pixels(), shot.w as u32, shot.h as u32, lang.as_deref());
+    let s = settings::current();
+    let text = ocr::recognize(shot.pixels(), shot.w as u32, shot.h as u32, s.ocr_language.as_deref())
+        .map(|t| if s.fix_codes { ocr::fix_codes(&t) } else { t });
     drop(shot);
     match text {
         Some(text) => {

@@ -48,6 +48,8 @@ pub struct Settings {
     pub save_dir: Option<PathBuf>,
     /// Language tag of an installed OCR recognizer; `None` is the Windows display language.
     pub ocr_language: Option<String>,
+    /// In OCR'd codes, read O as 0 and I as 1 (see `ocr::fix_codes`).
+    pub fix_codes: bool,
 }
 
 impl Settings {
@@ -60,6 +62,7 @@ impl Settings {
         clipboard: config::CLIPBOARD,
         save_dir: None,
         ocr_language: None,
+        fix_codes: true,
     };
 }
 
@@ -137,6 +140,7 @@ pub fn load_from(key: &str) -> Settings {
             .unwrap_or(d.clipboard),
         save_dir: string("SaveFolder").map(PathBuf::from),
         ocr_language: string("OcrLanguage"),
+        fix_codes: dword("FixCodes").map_or(d.fix_codes, |v| v != 0),
     }
 }
 
@@ -151,6 +155,7 @@ pub fn save_to(key: &str, s: &Settings) {
     write_dword(&k, "Clipboard", index(&CLIPBOARD_MODES) as u32);
     write_string(&k, "SaveFolder", s.save_dir.as_ref().map(|p| p.to_string_lossy().into_owned()));
     write_string(&k, "OcrLanguage", s.ocr_language.clone());
+    write_dword(&k, "FixCodes", s.fix_codes as u32);
 }
 
 pub fn wide(s: &str) -> Vec<u16> {
@@ -278,6 +283,7 @@ mod tests {
         assert_eq!(d.clipboard, crate::config::CLIPBOARD);
         assert_eq!(d.save_dir, None);
         assert_eq!(d.ocr_language, None);
+        assert!(d.fix_codes);
     }
 
     #[test]
@@ -298,6 +304,7 @@ mod tests {
             clipboard: ClipboardMode::ImageFirst,
             save_dir: Some(PathBuf::from(r"D:\Snips\Batérie")),
             ocr_language: Some("en-US".into()),
+            fix_codes: false,
         };
         save_to(&key.0, &s);
         assert_eq!(load_from(&key.0), s);

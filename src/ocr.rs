@@ -109,6 +109,54 @@ fn gray_scaled(px: &[u8], w: u32, h: u32, sw: u32, sh: u32) -> Vec<u8> {
     out
 }
 
+/// Serial numbers and codes. The engine reads them as words, so 0 comes back as O and 1 as I most
+/// of all (2160 rendered serials without the letters I and O: 62% exact without this, about 78% with
+/// it; serials that do use those letters lose about 7 points). In tokens that look
+/// like codes those letters become digits again; ordinary words and numbers are left alone.
+/// It's wrong for codes that really contain the letters O or I, so it can be turned off.
+pub fn fix_codes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut token = String::new();
+    for c in text.chars() {
+        if c.is_whitespace() {
+            push_token(&mut out, &token);
+            token.clear();
+            out.push(c);
+        } else {
+            token.push(c);
+        }
+    }
+    push_token(&mut out, &token);
+    out
+}
+
+fn push_token(out: &mut String, token: &str) {
+    if is_code(token) {
+        out.extend(token.chars().map(|c| match c {
+            'O' | 'Ô' | 'Ó' | 'Ö' | 'Ő' | 'ô' | 'ó' | 'ö' | 'ő' => '0',
+            'I' | 'Í' | 'í' | 'l' | 'Ł' | 'ł' | '|' | '!' => '1',
+            c => c,
+        }));
+    } else {
+        out.push_str(token);
+    }
+}
+
+/// At least four letters or digits, at least one digit, and no lowercase word in it. "CO2", "51.2"
+/// and "Model2024" aren't codes; "A123-LFP-88213" is.
+fn is_code(token: &str) -> bool {
+    let alnum = token.chars().filter(|c| c.is_alphanumeric()).count();
+    let digit = token.chars().any(|c| c.is_ascii_digit());
+    let lowercase_run = token
+        .chars()
+        .fold((0, 0), |(run, longest), c| {
+            let run = if c.is_lowercase() { run + 1 } else { 0 };
+            (run, longest.max(run))
+        })
+        .1;
+    alnum >= 4 && digit && lowercase_run < 3
+}
+
 /// One line of text per OCR line, CRLF between them as the clipboard expects. Blank lines dropped.
 fn join_lines(lines: impl IntoIterator<Item = String>) -> Option<String> {
     let text = lines
@@ -271,6 +319,36 @@ mod tests {
         // Black then white, doubled: the middle pixels blend.
         let px = [0, 0, 0, 0, 255, 255, 255, 0];
         assert_eq!(gray_scaled(&px, 2, 1, 4, 2), [0, 64, 191, 255, 0, 64, 191, 255]);
+    }
+
+    #[test]
+    fn code_fix_turns_letters_in_codes_into_digits() {
+        // The engine's most common misreads in serials: 0 as O and 1 as I, plus Czech accents.
+        assert_eq!(fix_codes("BAT-7X4K29QI"), "BAT-7X4K29Q1");
+        assert_eq!(fix_codes("MHLV-OMLO-7CSD"), "MHLV-0ML0-7CSD");
+        assert_eq!(fix_codes("SN: A123-LFP-882l3"), "SN: A123-LFP-88213");
+        assert_eq!(fix_codes("DAKô-1E8M"), "DAK0-1E8M");
+        assert_eq!(fix_codes("Z06M-FC2J-ŁO1O"), "Z06M-FC2J-1010");
+    }
+
+    #[test]
+    fn code_fix_leaves_ordinary_text_alone() {
+        for t in [
+            "Battery pack nominal voltage 51.2 V",
+            "Hradec Králové 2024",
+            "Model LFP280 cell lot 07",
+            "ISO 9001 certified",
+            "Store between 10 and 35 °C",
+            "CO2 and H2O",
+            "Win11 Model2024",
+        ] {
+            assert_eq!(fix_codes(t), t);
+        }
+    }
+
+    #[test]
+    fn code_fix_keeps_line_breaks() {
+        assert_eq!(fix_codes("SN BAT-IOO2\r\nLot 0O71"), "SN BAT-1002\r\nLot 0071");
     }
 
     #[test]

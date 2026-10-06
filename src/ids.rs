@@ -17,5 +17,6 @@ pub const IDC_BROWSE: u16 = 112;
 pub const IDC_RESET: u16 = 113;
 pub const IDC_LANGUAGE: u16 = 114;
 pub const IDC_AUTOSTART: u16 = 115;
+pub const IDC_FIX_CODES: u16 = 116;
 // Manifest that switches the dialog to the modern controls, activated only while it's open.
 pub const MANIFEST_MODERN_CONTROLS: u16 = 2;

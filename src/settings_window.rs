@@ -174,6 +174,8 @@ fn init(dlg: HWND) {
         let tags: Vec<String> = langs.iter().map(|(tag, _)| tag.clone()).collect();
         let names = std::iter::once("Windows language".to_string()).chain(langs.into_iter().map(|(_, n)| n));
         fill(dlg, IDC_LANGUAGE, names, language_index(&tags, s.ocr_language.as_deref()));
+        let fix = if s.fix_codes { BST_CHECKED } else { BST_UNCHECKED };
+        CheckDlgButton(dlg, IDC_FIX_CODES as i32, fix);
         let autostart = tray::autostart_enabled();
         CheckDlgButton(dlg, IDC_AUTOSTART as i32, if autostart { BST_CHECKED } else { BST_UNCHECKED });
         SetFocus(GetDlgItem(dlg, IDOK));
@@ -254,6 +256,9 @@ fn command(dlg: HWND, id: u16, code: u32) {
         (IDC_RESET, BN_CLICKED) => {
             with_edit(|e| e.s.save_dir = None);
             set_text(dlg, IDC_FOLDER, &folder_text(None));
+        }
+        (IDC_FIX_CODES, BN_CLICKED) => {
+            with_edit(|e| e.s.fix_codes = checked(IDC_FIX_CODES));
         }
         (IDC_AUTOSTART, BN_CLICKED) => {
             with_edit(|e| e.autostart = checked(IDC_AUTOSTART));
@@ -497,7 +502,7 @@ mod tests {
             let mut bits = null_mut();
             let bmp = CreateDIBSection(mem, &bmi, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
             let old = SelectObject(mem, bmp);
-            assert!(PrintWindow(dlg, mem, PW_RENDERFULLCONTENT) != 0);
+            assert!(PrintWindow(dlg, mem, 0) != 0);
             GdiFlush();
             let px = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize);
             let png = crate::encode::png(px, w as u32, h as u32).unwrap();

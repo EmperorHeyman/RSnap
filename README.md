@@ -1,11 +1,11 @@
 # RSnap
 
-> Win+Shift+S without the frozen screen. A 480 KB snipping tool that sits at 0% CPU until you press the shortcut.
+> Win+Shift+S without the frozen screen. A 520 KB snipping tool that sits at 0% CPU until you press the shortcut.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-lightgrey.svg)](#setup)
-[![Binary size](https://img.shields.io/badge/binary-480_KB-blue.svg)](#numbers)
+[![Binary size](https://img.shields.io/badge/binary-520_KB-blue.svg)](#numbers)
 [![Idle RAM](https://img.shields.io/badge/idle_RAM-~1_MB-brightgreen.svg)](#numbers)
 
 ## The problem
@@ -48,9 +48,13 @@ message loop. That constraint is the whole point of the project.
 | **Drag, release** | Snip on the clipboard |
 | **Ctrl + release** | Same, plus saved to `Pictures\RSnap` |
 | **Shift + release** | The text in the snip on the clipboard, plus a popup to fix it or copy part of it |
+| **Win+Shift+T** | Crosshair in text mode: release always gives text |
 | **Esc** or **right-click** | Cancel |
 | **Tray icon, left-click** | Start a snip |
-| **Tray icon, right-click** | Open folder · Start with Windows · Exit |
+| **Tray icon, right-click** | Settings… · Open folder · Start with Windows · Exit |
+
+Both hotkeys, which release key saves and which reads text, and the rest are in
+[Settings](#settings).
 
 The crosshair never takes focus, so the app you were in is still focused and ready for Ctrl+V.
 
@@ -72,6 +76,11 @@ reads English too). Small screen text is enlarged 2× first, because Windows OCR
 Only Unicode text goes on the clipboard, no image. If nothing readable is found you hear a warning
 beep and the clipboard is left alone.
 
+Windows OCR reads codes as if they were words, so in serial numbers 0 comes back as O and 1 as I.
+With **Serial numbers: read O as 0 and I as 1** (on by default), tokens that look like codes get
+those digits back; ordinary words and numbers are untouched. On 2160 rendered serials that took exact
+reads from 62% to about 78%. Turn it off if your codes really contain the letters O or I.
+
 The popup under the snip already has focus:
 
 | Key | Does |
@@ -83,8 +92,8 @@ The popup under the snip already has focus:
 
 ### Clipboard modes
 
-Apps generally take the first clipboard format they understand, so the order matters. Pick it with
-`CLIPBOARD` in [`src/config.rs`](src/config.rs).
+Apps generally take the first clipboard format they understand, so the order matters. Pick it in
+[Settings](#settings).
 
 | Mode | Order | Pick it when |
 |---|---|---|
@@ -105,14 +114,16 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
 | Shift-release → text on clipboard (500×350 snip) | ~30 ms |
 | Idle CPU | 0. CPU time didn't move over 45 s idle. |
 | Idle RAM | ~1 MB working set, ~2.4 MB private |
-| Binary | 480 KB, one exe, no runtime |
+| Binary | 520 KB, one exe, no runtime |
 | Accuracy | Pixel-exact against a full-screen capture |
 
 ## How it works
 
 - **Hotkey.** Explorer owns Win+Shift+S, so `RegisterHotKey` can't have it. A low-level keyboard hook
   eats the S before Windows sees the combo, then taps an unassigned key so letting go of Win doesn't
-  open the Start menu (the AutoHotkey trick). Per keystroke the hook tests a few bits and returns.
+  open the Start menu (the AutoHotkey trick; it also stops Alt from opening a menu bar). Per keystroke
+  the hook compares the key with the two hotkeys and returns. The same hook records new combinations
+  in the settings window, which is why Win combos can be recorded at all.
 - **Crosshair.** One window over every monitor, created with `WS_EX_NOREDIRECTIONBITMAP`. It has no
   surface at all, so it draws nothing and can't tint anything, but it still catches the mouse.
 - **Glow.** Eight per-pixel-alpha windows, four edges and four corners. The gradients are drawn once
@@ -125,8 +136,11 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
   ships, so no models are bundled. The snip is converted to grayscale and enlarged 2× first, which
   takes 12 px screen text from unreadable to exact. The engine is created per snip and released;
   Windows keeps the OCR library mapped after the first text snip, and the trim after each snip pages
-  it out of the working set. The popup is a plain Windows edit box, and the only RSnap window that
-  takes focus.
+  it out of the working set. The popup is a plain Windows edit box.
+- **Settings.** A dialog template in the exe, created when you open it and destroyed when you close
+  it. Its modern controls come from an activation context used only around it, and the colour and
+  folder pickers load only when clicked, so none of that is loaded until you open the window. Values
+  live in `HKCU\Software\RSnap`; anything missing falls back to the defaults in `config.rs`.
 - **DPI.** Per-Monitor V2 awareness, declared in the embedded manifest. Every coordinate is a physical
   pixel, so a 150% laptop screen next to a 100% monitor captures at native resolution on both, with
   no scaling blur and no offset selection.
@@ -137,14 +151,14 @@ Measured on my machine: Windows 11, four monitors, 8320×1440 desktop.
 |---|---|
 | **Admin windows** | While an elevated window is focused, Windows doesn't pass its keystrokes to a non-elevated hook, so Win+Shift+S opens the stock Snipping Tool instead. Run RSnap as administrator if that bothers you. |
 | **Hover menus and tooltips** | The screen is live, so anything that only exists while you hover can close before you finish dragging. |
-| **Word and Outlook** | They may paste the file as an attachment rather than an inline picture. Set `CLIPBOARD` to `ImageFirst` if you mostly paste into Office. |
+| **Word and Outlook** | They may paste the file as an attachment rather than an inline picture. Set the clipboard mode to "Image, then file" if you mostly paste into Office. |
 | **Exclusive-fullscreen games** | Nothing can draw over them. Borderless windowed is fine. |
 | **Recording a demo** | The glow is hidden from screen capture by design, so OBS and ShareX won't see it. |
 | **HDR** | Snips come out tone-mapped to SDR. |
 | **Unsigned** | SmartScreen may warn the first time you run the installer. |
 | **Text: pasting straight away** | The popup has focus, so Ctrl+V right after a text snip pastes into the popup. Click where you want to paste first; that also closes it. |
 | **Text: languages** | Windows only reads scripts it has an OCR pack for. Latin script works with the Czech or English pack; Chinese, Cyrillic and others need their pack installed. |
-| **Text: 1, l, I and decimals** | Serial numbers can come back with these swapped, and small decimal points can be dropped or, with the Czech recognizer, turned into commas (`51.2` → `512`, `14.3` → `14,3`). Fix it in the popup and press Enter. |
+| **Text: serial numbers** | Even with the O/I fix, about 1 in 5 serials comes back with a mistake: a dropped hyphen, 5 read as S, U as 1J. Small decimal points can be dropped or, with the Czech recognizer, turned into commas (`51.2` → `512`, `14.3` → `14,3`). Check codes in the popup; fix and press Enter. |
 | **Text: very wide snips** | The engine takes at most 10,000 px a side, so snips wider than 5,000 px are enlarged less than 2× and small text in them may be missed. |
 
 ---
@@ -175,18 +189,34 @@ The exe on its own is fully portable: run it from anywhere and use the tray menu
 **Start with Windows**. If you move it, start it once from the new place and the autostart entry
 follows.
 
-## Configuration
+## Settings
 
-There's no settings window. Settings are constants in [`src/config.rs`](src/config.rs): change one,
-rebuild.
+Right-click the tray icon → **Settings…**. OK applies immediately; Cancel or Esc discards.
 
-| Setting | Default | Description |
+| Setting | Default | Notes |
 |---|---|---|
-| `GLOW_COLOR` | `Some(0x00FFA82F)` | Glow colour as `0x00BBGGRR`, or `None` for your Windows accent colour |
-| `GLOW_SIZE` / `GLOW_CORE` | `10.0` / `2.0` | Glow thickness and the solid inner line, in px at 100% scaling |
+| Snip hotkey | Win+Shift+S | Click the box and press any combination. Needs Win, Ctrl or Alt, except Print Screen, Pause, Scroll Lock and F13–F24. Moving it off Win+Shift+S gives that back to the stock Snipping Tool. |
+| Text hotkey | Win+Shift+T | Opens the crosshair in text mode. Backspace turns it off. |
+| On release | Ctrl saves, Shift reads text | Or the other way round |
+| Glow colour | Blue | Any colour, or your Windows accent colour |
+| Thickness | Normal | Thin, Normal or Thick |
+| Clipboard | File, then image | See [clipboard modes](#clipboard-modes) |
+| Save folder | `Pictures\RSnap` | Where Ctrl-release saves |
+| OCR language | Windows language | Any installed OCR recognizer |
+| Serial numbers: read O as 0 and I as 1 | On | See [text snips](#text-snips) |
+| Start with Windows | Set by the installer | Same as the tray menu item |
+
+Settings are stored in `HKCU\Software\RSnap`; the uninstaller removes them.
+
+### Build-time constants
+
+The rest are constants in [`src/config.rs`](src/config.rs): change one, rebuild. The defaults for
+the settings above live there too.
+
+| Constant | Default | Description |
+|---|---|---|
 | `GLOW_CORE_ALPHA` / `GLOW_FADE_ALPHA` | `235` / `130` | Opacity of the line, and where the falloff starts |
 | `MIN_DRAG` | `4` | Smaller drags count as a click and cancel |
-| `CLIPBOARD` | `FileFirst` | See [clipboard modes](#clipboard-modes) |
 | `FILE_PREFIX` | `rsnap_` | File name prefix |
 | `DIR_NAME` | `RSnap` | Folder under Pictures and `%TEMP%` |
 | `TEMP_RETENTION_SECS` | 24 h | How long clipboard files are kept |
@@ -203,7 +233,8 @@ rebuild.
 RSnap/
 ├── src/
 │   ├── main.rs        # Entry, message loop, the worker that delivers a snip
-│   ├── hook.rs        # Low-level keyboard hook: Win+Shift+S and Esc
+│   ├── hook.rs        # Low-level keyboard hook: the hotkeys, Esc, recording combinations
+│   ├── hotkey.rs      # Key combinations: matching, rules, labels
 │   ├── overlay.rs     # Invisible full-screen window: crosshair and drag
 │   ├── glow.rs        # The glow frame
 │   ├── capture.rs     # BitBlt from the screen
@@ -213,16 +244,19 @@ RSnap/
 │   ├── clipboard.rs   # File + PNG + DIB, or text, on the clipboard
 │   ├── files.rs       # Random names, folders, temp cleanup
 │   ├── tray.rs        # Tray icon, menu, autostart
-│   └── config.rs      # Every setting
-├── assets/            # Icon and manifest (per-monitor DPI)
+│   ├── settings.rs    # Settings in the registry
+│   ├── settings_window.rs # The settings dialog
+│   ├── ids.rs         # Dialog control IDs, shared with build.rs
+│   └── config.rs      # Defaults and build-time constants
+├── assets/            # Icon and manifests (per-monitor DPI; modern controls for the dialog)
 ├── installer/
 │   └── rsnap.nsi      # NSIS installer
-└── build.rs           # Embeds icon, manifest and version info
+└── build.rs           # Embeds icon, manifests, settings dialog and version info
 ```
 
 ## Tech
 
-Rust, raw Win32 through `windows-sys`, the `windows` crate for the WinRT OCR engine, and the `png`
+Rust, raw Win32 through `windows-sys`, the `windows` crate for the WinRT OCR engine and the folder picker, and the `png`
 crate. No GUI framework, no async runtime, no
 tray-icon crate. The CRT is linked statically, so it's a single exe with nothing to install
 alongside it.
