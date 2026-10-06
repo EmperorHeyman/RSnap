@@ -2,26 +2,24 @@
 
 use std::mem::{size_of, zeroed};
 use std::ptr::null;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-use crate::{WM_APP_CANCEL, WM_APP_SNIP, config};
+use crate::{MAIN_WINDOW, WM_APP_CANCEL, WM_APP_SNIP, config};
 
 /// True while the crosshair is up.
 pub static ACTIVE: AtomicBool = AtomicBool::new(false);
-static MAIN: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
 /// We ate the S key-down, so eat its key-up too.
 static EAT_S_UP: AtomicBool = AtomicBool::new(false);
 /// Tags our own injected keys so the hook lets them through.
 const MARKER: usize = 0x5253_4E50;
 const VK_S: u32 = b'S' as u32;
 
-pub fn install(main: HWND) {
-    MAIN.store(main, Relaxed);
+pub fn install() {
     unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(proc), GetModuleHandleW(null()), 0) };
 }
 
@@ -35,7 +33,7 @@ unsafe extern "system" fn proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
             let k = &*(lp as *const KBDLLHOOKSTRUCT);
             if k.dwExtraInfo != MARKER {
                 let down = wp == WM_KEYDOWN as usize || wp == WM_SYSKEYDOWN as usize;
-                let main = MAIN.load(Relaxed);
+                let main = MAIN_WINDOW.load(Relaxed);
                 if k.vkCode == VK_S {
                     if down
                         && (held(VK_LWIN) || held(VK_RWIN))

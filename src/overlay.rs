@@ -9,13 +9,25 @@ use std::sync::atomic::Ordering::Relaxed;
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, SetCapture, VK_CONTROL};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, SetCapture, VK_CONTROL, VK_SHIFT,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::w;
 
 use crate::{capture, config, glow, hook};
 
+const MK_SHIFT: usize = 0x0004;
 const MK_CONTROL: usize = 0x0008;
+
+/// What a finished drag produces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Output {
+    /// PNG, DIB and a named file; `save` also writes it to Pictures.
+    Image { save: bool },
+    /// OCR'd text and the popup.
+    Text,
+}
 
 thread_local! {
     static OVERLAY: Cell<HWND> = const { Cell::new(null_mut()) };
@@ -86,7 +98,16 @@ pub fn cancel() {
     hook::ACTIVE.store(false, Relaxed);
 }
 
-fn finish(sel: RECT, save: bool) {
+/// Shift asks for text and wins over Ctrl.
+fn output(ctrl: bool, shift: bool) -> Output {
+    if shift {
+        Output::Text
+    } else {
+        Output::Image { save: ctrl }
+    }
+}
+
+fn finish(sel: RECT, out: Output) {
     let (w, h) = (sel.right - sel.left, sel.bottom - sel.top);
     if w < config::MIN_DRAG && h < config::MIN_DRAG {
         cancel();
@@ -96,9 +117,17 @@ fn finish(sel: RECT, save: bool) {
     let shot = capture::grab(sel);
     cancel();
     if let Some(shot) = shot {
+        // Stack is only reserved, not committed; the OCR path calls into WinRT code we don't control.
+        let stack = match out {
+            Output::Image { .. } => 256 * 1024,
+            Output::Text => 1024 * 1024,
+        };
         let _ = std::thread::Builder::new()
-            .stack_size(256 * 1024)
-            .spawn(move || crate::deliver(shot, save));
+            .stack_size(stack)
+            .spawn(move || match out {
+                Output::Image { save } => crate::deliver(shot, save),
+                Output::Text => crate::deliver_text(shot, sel),
+            });
     }
 }
 
@@ -140,8 +169,9 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             }
             WM_LBUTTONUP => {
                 if let Some(a) = ANCHOR.take() {
-                    let save = wp & MK_CONTROL != 0 || GetAsyncKeyState(VK_CONTROL as i32) < 0;
-                    finish(selection(a, to_screen(lp)), save);
+                    let ctrl = wp & MK_CONTROL != 0 || GetAsyncKeyState(VK_CONTROL as i32) < 0;
+                    let shift = wp & MK_SHIFT != 0 || GetAsyncKeyState(VK_SHIFT as i32) < 0;
+                    finish(selection(a, to_screen(lp)), output(ctrl, shift));
                 }
             }
             WM_RBUTTONDOWN => cancel(),
@@ -154,5 +184,18 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             _ => return DefWindowProcW(hwnd, msg, wp, lp),
         }
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_keys_pick_the_output() {
+        assert_eq!(output(false, false), Output::Image { save: false });
+        assert_eq!(output(true, false), Output::Image { save: true });
+        assert_eq!(output(false, true), Output::Text);
+        assert_eq!(output(true, true), Output::Text);
     }
 }
