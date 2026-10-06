@@ -8,7 +8,9 @@ use std::ptr::{null, null_mut};
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, POINT, SIZE};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
+use windows_sys::Win32::System::Registry::{
+    HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RegGetValueW,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::w;
 
@@ -99,28 +101,59 @@ fn alpha(d: f32, core: f32, size: f32) -> f32 {
     k * GLOW_CORE_ALPHA + (1.0 - k) * fade
 }
 
+/// The Windows accent colour, made visible: a dark accent comes back as a lighter shade of itself.
 pub fn accent_color() -> u32 {
-    let mut v = 0u32;
+    let mut accent = 0u32;
     let mut len = size_of::<u32>() as u32;
-    let ok = unsafe {
+    let accent_ok = unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
             w!("Software\\Microsoft\\Windows\\DWM"),
             w!("AccentColor"),
             RRF_RT_REG_DWORD,
             null_mut(),
-            &mut v as *mut u32 as *mut _,
+            &mut accent as *mut u32 as *mut _,
             &mut len,
         )
     } == 0;
-    let (r, g, b) = (v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF);
-    // A near-black accent would make an invisible glow.
-    let luma = (r * 299 + g * 587 + b * 114) / 1000;
-    if ok && luma >= 80 {
-        v & 0x00FF_FFFF
-    } else {
-        FALLBACK_COLOR
+    let mut palette = [0u8; 32];
+    let mut len = palette.len() as u32;
+    let palette_ok = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent"),
+            w!("AccentPalette"),
+            RRF_RT_REG_BINARY,
+            null_mut(),
+            palette.as_mut_ptr() as *mut _,
+            &mut len,
+        )
+    } == 0
+        && len == 32;
+    visible_accent(accent_ok.then_some(accent), palette_ok.then_some(palette))
+}
+
+/// `accent` is DWM's 0xAABBGGRR; `palette` is Windows' eight RGBA shades of it, lightest first, the
+/// first seven a light-to-dark ramp. A near-black glow would be invisible, so a dark accent becomes
+/// the darkest ramp shade that's still bright enough. Blue only when there's nothing usable.
+fn visible_accent(accent: Option<u32>, palette: Option<[u8; 32]>) -> u32 {
+    const MIN_LUMA: u32 = 80;
+    let luma = |c: u32| ((c & 0xFF) * 299 + ((c >> 8) & 0xFF) * 587 + ((c >> 16) & 0xFF) * 114) / 1000;
+    let Some(accent) = accent.map(|a| a & 0x00FF_FFFF) else {
+        return FALLBACK_COLOR;
+    };
+    if luma(accent) >= MIN_LUMA {
+        return accent;
     }
+    palette
+        .and_then(|p| {
+            p.chunks_exact(4)
+                .take(7)
+                .map(|s| s[0] as u32 | (s[1] as u32) << 8 | (s[2] as u32) << 16)
+                .filter(|&c| luma(c) >= MIN_LUMA)
+                .min_by_key(|&c| luma(c))
+        })
+        .unwrap_or(FALLBACK_COLOR)
 }
 
 pub fn create(dpi: u32, max_w: i32, max_h: i32) {
@@ -247,5 +280,51 @@ pub fn destroy() {
         for hwnd in g.wins {
             unsafe { DestroyWindow(hwnd) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// This machine's dark burgundy accent and the palette Windows derived from it (lightest first).
+    const DARK_ACCENT: u32 = 0xFF18_1133;
+    const DARK_PALETTE: [u8; 32] = [
+        160, 53, 75, 0, 133, 44, 63, 0, 114, 38, 54, 0, 95, 31, 45, 0, 76, 25, 36, 0, 57, 19, 27, 0,
+        30, 10, 14, 0, 136, 23, 152, 0,
+    ];
+
+    #[test]
+    fn bright_accent_is_used_as_is() {
+        // Windows 11's default blue, #0078D4.
+        assert_eq!(visible_accent(Some(0xFFD4_7800), Some(DARK_PALETTE)), 0x00D4_7800);
+    }
+
+    #[test]
+    fn dark_accent_uses_a_lighter_shade_of_itself() {
+        // Not the default blue: the first palette shade bright enough to see, #A0354B.
+        assert_eq!(visible_accent(Some(DARK_ACCENT), Some(DARK_PALETTE)), 0x004B_35A0);
+    }
+
+    #[test]
+    fn picks_the_darkest_shade_that_is_still_visible() {
+        // Lightest first, as Windows stores it. Shades 0-2 are visible; 2 is closest to the accent.
+        let mut palette = DARK_PALETTE;
+        palette[0..3].copy_from_slice(&[230, 120, 140]);
+        palette[4..7].copy_from_slice(&[200, 90, 110]);
+        palette[8..11].copy_from_slice(&[170, 70, 90]);
+        assert_eq!(visible_accent(Some(DARK_ACCENT), Some(palette)), 0x005A_46AA);
+    }
+
+    #[test]
+    fn near_black_accent_falls_back_to_blue() {
+        let palette = [10u8; 32];
+        assert_eq!(visible_accent(Some(DARK_ACCENT), Some(palette)), FALLBACK_COLOR);
+    }
+
+    #[test]
+    fn no_accent_at_all_falls_back_to_blue() {
+        assert_eq!(visible_accent(None, None), FALLBACK_COLOR);
+        assert_eq!(visible_accent(Some(DARK_ACCENT), None), FALLBACK_COLOR);
     }
 }
