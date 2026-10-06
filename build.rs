@@ -1,6 +1,12 @@
 use std::env;
 use std::path::PathBuf;
 
+#[allow(dead_code)]
+mod ids {
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ids.rs"));
+}
+use ids::*;
+
 const COMPANY: &str = "RAPL Group, s.r.o.";
 
 fn main() {
@@ -18,8 +24,47 @@ fn main() {
     };
 
     let rc = format!(
-        r#"1 ICON "{icon}"
+        r#"#include <windows.h>
+
+1 ICON "{icon}"
 1 24 "{manifest}"
+{MANIFEST_MODERN_CONTROLS} 24 "{controls}"
+
+{IDD_SETTINGS} DIALOGEX 0, 0, 300, 262
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "RSnap settings"
+FONT 9, "Segoe UI", 400, 0, 1
+BEGIN
+  GROUPBOX "Hotkeys", -1, 7, 5, 286, 92
+  LTEXT "Snip", -1, 16, 20, 58, 8
+  EDITTEXT {IDC_SNIP}, 78, 18, 206, 13, ES_READONLY | ES_AUTOHSCROLL
+  LTEXT "Text", -1, 16, 37, 58, 8
+  EDITTEXT {IDC_TEXT}, 78, 35, 206, 13, ES_READONLY | ES_AUTOHSCROLL
+  LTEXT "", {IDC_HINT}, 78, 51, 206, 16
+  LTEXT "On release", -1, 16, 70, 58, 8
+  AUTORADIOBUTTON "Ctrl saves, Shift reads text", {IDC_SHIFT_TEXT}, 78, 69, 206, 10, WS_GROUP | WS_TABSTOP
+  AUTORADIOBUTTON "Shift saves, Ctrl reads text", {IDC_CTRL_TEXT}, 78, 81, 206, 10
+  GROUPBOX "Look", -1, 7, 101, 286, 48
+  LTEXT "Glow colour", -1, 16, 117, 58, 8
+  LTEXT "", {IDC_SWATCH}, 78, 114, 22, 14, WS_BORDER
+  PUSHBUTTON "Pick...", {IDC_PICK}, 104, 114, 48, 14, WS_GROUP
+  AUTOCHECKBOX "Windows accent colour", {IDC_ACCENT}, 160, 116, 124, 10
+  LTEXT "Thickness", -1, 16, 134, 58, 8
+  COMBOBOX {IDC_THICKNESS}, 78, 132, 90, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+  GROUPBOX "Output", -1, 7, 153, 286, 70
+  LTEXT "Clipboard", -1, 16, 169, 58, 8
+  COMBOBOX {IDC_CLIPBOARD}, 78, 167, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+  LTEXT "Save folder", -1, 16, 187, 58, 8
+  EDITTEXT {IDC_FOLDER}, 78, 185, 110, 13, ES_READONLY | ES_AUTOHSCROLL
+  PUSHBUTTON "Browse...", {IDC_BROWSE}, 192, 184, 46, 14
+  PUSHBUTTON "Reset", {IDC_RESET}, 242, 184, 42, 14
+  LTEXT "OCR language", -1, 16, 205, 58, 8
+  COMBOBOX {IDC_LANGUAGE}, 78, 203, 206, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+  AUTOCHECKBOX "Start with Windows", {IDC_AUTOSTART}, 10, 229, 140, 10
+  DEFPUSHBUTTON "OK", IDOK, 186, 242, 50, 14
+  PUSHBUTTON "Cancel", IDCANCEL, 243, 242, 50, 14
+END
 
 1 VERSIONINFO
 FILEVERSION {major},{minor},{patch},0
@@ -49,12 +94,15 @@ END
 "#,
         icon = asset("rsnap.ico"),
         manifest = asset("rsnap.manifest"),
+        controls = asset("controls.manifest"),
     );
 
     let rc_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("rsnap.rc");
     std::fs::write(&rc_path, rc).unwrap();
     println!("cargo:rerun-if-changed=assets");
-    embed_resource::compile(&rc_path, embed_resource::NONE)
+    println!("cargo:rerun-if-changed=src/ids.rs");
+    // Tests too: they open the settings dialog from its template.
+    embed_resource::compile_for_everything(&rc_path, embed_resource::NONE)
         .manifest_required()
         .unwrap();
 }

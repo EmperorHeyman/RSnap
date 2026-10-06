@@ -118,5 +118,7 @@ Section "Uninstall"
   RMDir "$INSTDIR"
   ; Clipboard temp files. Snips saved to Pictures\RSnap are yours and stay.
   RMDir /r "$TEMP\RSnap"
+  ; Settings from the settings window.
+  DeleteRegKey HKCU "Software\${APP}"
   DeleteRegKey HKCU "${UNINST_KEY}"
 SectionEnd

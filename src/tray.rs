@@ -13,11 +13,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::core::PCWSTR;
 use windows_sys::w;
 
-use crate::{WM_APP_SNIP, WM_APP_TRAY, files};
+use crate::{WM_APP_SNIP, WM_APP_TRAY, files, settings_window};
 
 const ID_OPEN: usize = 1;
 const ID_AUTOSTART: usize = 2;
 const ID_EXIT: usize = 3;
+const ID_SETTINGS: usize = 4;
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const RUN_VALUE: PCWSTR = w!("RSnap");
 
@@ -92,6 +93,8 @@ fn menu(hwnd: HWND) {
     unsafe {
         let m = CreatePopupMenu();
         let checked = if autostart_enabled() { MF_CHECKED } else { 0 };
+        AppendMenuW(m, MF_STRING, ID_SETTINGS, w!("Settings..."));
+        SetMenuDefaultItem(m, ID_SETTINGS as u32, 0);
         AppendMenuW(m, MF_STRING, ID_OPEN, w!("Open folder"));
         AppendMenuW(
             m,
@@ -119,6 +122,7 @@ fn menu(hwnd: HWND) {
         DestroyMenu(m);
 
         match cmd as usize {
+            ID_SETTINGS => settings_window::open(),
             ID_OPEN => open_folder(),
             ID_AUTOSTART => set_autostart(checked == 0),
             ID_EXIT => {
@@ -136,7 +140,7 @@ fn open_folder() {
     let _ = std::process::Command::new("explorer.exe").arg(&dir).spawn();
 }
 
-fn autostart_enabled() -> bool {
+pub fn autostart_enabled() -> bool {
     unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
@@ -150,7 +154,7 @@ fn autostart_enabled() -> bool {
     }
 }
 
-fn set_autostart(on: bool) {
+pub fn set_autostart(on: bool) {
     unsafe {
         if on {
             let Ok(exe) = std::env::current_exe() else {

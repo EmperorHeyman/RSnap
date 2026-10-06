@@ -11,7 +11,9 @@ mod hotkey;
 mod ocr;
 mod overlay;
 mod popup;
+mod ids;
 mod settings;
+mod settings_window;
 mod tray;
 
 use std::ffi::c_void;
@@ -85,7 +87,7 @@ fn main() {
 
         let mut msg = zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
-            if !popup::pre_translate(&msg) {
+            if !popup::pre_translate(&msg) && !settings_window::pre_translate(&msg) {
                 // The popup's edit box needs WM_CHAR to take typing.
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);

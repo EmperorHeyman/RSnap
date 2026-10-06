@@ -99,7 +99,7 @@ fn alpha(d: f32, core: f32, size: f32) -> f32 {
     k * GLOW_CORE_ALPHA + (1.0 - k) * fade
 }
 
-fn accent_color() -> u32 {
+pub fn accent_color() -> u32 {
     let mut v = 0u32;
     let mut len = size_of::<u32>() as u32;
     let ok = unsafe {
