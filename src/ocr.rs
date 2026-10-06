@@ -2,26 +2,45 @@
 
 use std::ptr::null;
 
+use windows::Globalization::Language;
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
+use windows::core::HSTRING;
 use windows::Media::Ocr::OcrEngine;
 use windows::Security::Cryptography::CryptographicBuffer;
 use windows_sys::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 
 use crate::config::OCR_SCALE;
 
-/// `px` is top-down BGRA, as captured. `None` when nothing readable was found.
-pub fn recognize(px: &[u8], w: u32, h: u32) -> Option<String> {
+/// `px` is top-down BGRA, as captured. `lang` is a recognizer's language tag; `None` or one that
+/// isn't installed means the Windows display language. `None` back when nothing readable was found.
+pub fn recognize(px: &[u8], w: u32, h: u32, lang: Option<&str>) -> Option<String> {
+    with_com(|| run(px, w, h, lang).ok().flatten())
+}
+
+/// Installed recognizers as (language tag, display name), for the settings window.
+pub fn languages() -> Vec<(String, String)> {
+    let list = || -> windows::core::Result<Vec<(String, String)>> {
+        let mut out = Vec::new();
+        for lang in OcrEngine::AvailableRecognizerLanguages()? {
+            out.push((lang.LanguageTag()?.to_string_lossy(), lang.DisplayName()?.to_string_lossy()));
+        }
+        Ok(out)
+    };
+    with_com(|| list().unwrap_or_default())
+}
+
+fn with_com<T>(f: impl FnOnce() -> T) -> T {
     unsafe {
         let hr = CoInitializeEx(null(), COINIT_MULTITHREADED as u32);
-        let text = run(px, w, h).ok().flatten();
+        let out = f();
         if hr >= 0 {
             CoUninitialize();
         }
-        text
+        out
     }
 }
 
-fn run(px: &[u8], w: u32, h: u32) -> windows::core::Result<Option<String>> {
+fn run(px: &[u8], w: u32, h: u32, lang: Option<&str>) -> windows::core::Result<Option<String>> {
     let (sw, sh) = scaled_size(w, h, OCR_SCALE, OcrEngine::MaxImageDimension()?);
     let gray = gray_scaled(px, w, h, sw, sh);
     let buffer = CryptographicBuffer::CreateFromByteArray(&gray)?;
@@ -29,7 +48,7 @@ fn run(px: &[u8], w: u32, h: u32) -> windows::core::Result<Option<String>> {
     let bitmap =
         SoftwareBitmap::CreateCopyFromBuffer(&buffer, BitmapPixelFormat::Gray8, sw as i32, sh as i32)?;
     drop(buffer);
-    let result = engine()?.RecognizeAsync(&bitmap)?.join()?;
+    let result = engine(lang)?.RecognizeAsync(&bitmap)?.join()?;
     let lines = result.Lines()?.into_iter().map(|line| {
         line.Text()
             .map(|t| t.to_string_lossy())
@@ -38,12 +57,18 @@ fn run(px: &[u8], w: u32, h: u32) -> windows::core::Result<Option<String>> {
     Ok(join_lines(lines))
 }
 
-/// The recognizer for the Windows display language, else whichever one is installed.
-fn engine() -> windows::core::Result<OcrEngine> {
-    OcrEngine::TryCreateFromUserProfileLanguages().or_else(|_| {
-        let lang = OcrEngine::AvailableRecognizerLanguages()?.GetAt(0)?;
-        OcrEngine::TryCreateFromLanguage(&lang)
-    })
+/// The chosen recognizer, else the one for the Windows display language, else any installed one.
+fn engine(lang: Option<&str>) -> windows::core::Result<OcrEngine> {
+    let chosen = || -> windows::core::Result<OcrEngine> {
+        let tag = lang.ok_or_else(windows::core::Error::empty)?;
+        OcrEngine::TryCreateFromLanguage(&Language::CreateLanguage(&HSTRING::from(tag))?)
+    };
+    chosen()
+        .or_else(|_| OcrEngine::TryCreateFromUserProfileLanguages())
+        .or_else(|_| {
+            let lang = OcrEngine::AvailableRecognizerLanguages()?.GetAt(0)?;
+            OcrEngine::TryCreateFromLanguage(&lang)
+        })
 }
 
 /// `scale` times bigger, shrunk if needed so neither side passes the engine's limit.
@@ -159,7 +184,7 @@ mod tests {
         // 12 px is Segoe UI 9 pt at 100% scaling. At 1x the engine returns nothing for it.
         let (w, h) = (300, 32);
         let px = render(&["RSnap 0123456789 ABC-7X4K29Q1"], 12, w, h);
-        let text = recognize(&px, w as u32, h as u32).expect("text");
+        let text = recognize(&px, w as u32, h as u32, None).expect("text");
         assert!(text.contains("0123456789"), "{text:?}");
         assert!(text.contains("7X4K29Q1"), "{text:?}");
     }
@@ -169,7 +194,7 @@ mod tests {
         let (w, h) = (300, 80);
         let px = render(&["First line here", "Second line 42"], 16, w, h);
         assert_eq!(
-            recognize(&px, w as u32, h as u32).as_deref(),
+            recognize(&px, w as u32, h as u32, None).as_deref(),
             Some("First line here\r\nSecond line 42")
         );
     }
@@ -179,7 +204,7 @@ mod tests {
         let (w, h) = (400, 40);
         let px = render(&["Žluťoučký kůň úpěl ďábelské ódy 2024"], 12, w, h);
         assert_eq!(
-            recognize(&px, w as u32, h as u32).as_deref(),
+            recognize(&px, w as u32, h as u32, None).as_deref(),
             Some("Žluťoučký kůň úpěl ďábelské ódy 2024")
         );
     }
@@ -190,14 +215,38 @@ mod tests {
         // serial is where 1, l and I get confused, so it is left out of the check.
         let (w, h) = (8320, 60);
         let px = render(&["Serial BAT-7X4K29Q1 at the far left"], 14, w, h);
-        let text = recognize(&px, w as u32, h as u32).expect("text");
+        let text = recognize(&px, w as u32, h as u32, None).expect("text");
         assert!(text.contains("BAT-7X4K29Q"), "{text:?}");
+    }
+
+    #[test]
+    fn reads_with_a_chosen_language() {
+        let (w, h) = (300, 32);
+        let px = render(&["RSnap 0123456789 ABC-7X4K29Q1"], 12, w, h);
+        let text = recognize(&px, w as u32, h as u32, Some("en-US")).expect("text");
+        assert!(text.contains("0123456789"), "{text:?}");
+    }
+
+    #[test]
+    fn unknown_language_falls_back_to_the_windows_one() {
+        let (w, h) = (300, 32);
+        let px = render(&["RSnap 0123456789"], 12, w, h);
+        let text = recognize(&px, w as u32, h as u32, Some("xx-NOPE")).expect("text");
+        assert!(text.contains("0123456789"), "{text:?}");
+    }
+
+    #[test]
+    fn lists_installed_languages() {
+        // This machine has the Czech and English OCR packs.
+        let tags: Vec<String> = languages().into_iter().map(|(tag, _)| tag).collect();
+        assert!(tags.iter().any(|t| t == "cs"), "{tags:?}");
+        assert!(tags.iter().any(|t| t == "en-US"), "{tags:?}");
     }
 
     #[test]
     fn blank_is_none() {
         let px = vec![255u8; 200 * 50 * 4];
-        assert_eq!(recognize(&px, 200, 50), None);
+        assert_eq!(recognize(&px, 200, 50, None), None);
     }
 
     #[test]

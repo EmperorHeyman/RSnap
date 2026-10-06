@@ -10,6 +10,7 @@ use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::UI::Shell::{FOLDERID_Pictures, SHGetKnownFolderPath};
 
 use crate::config::{DIR_NAME, FILE_PREFIX, TEMP_RETENTION_SECS};
+use crate::settings;
 
 /// `RandomState` is seeded from the OS RNG.
 pub fn random_name() -> String {
@@ -31,8 +32,13 @@ pub fn temp_dir() -> PathBuf {
     std::env::temp_dir().join(DIR_NAME)
 }
 
-/// Follows the Pictures folder if it was moved (e.g. to OneDrive).
+/// The folder from the settings, else Pictures\RSnap.
 pub fn save_dir() -> Option<PathBuf> {
+    settings::current().save_dir.or_else(default_save_dir)
+}
+
+/// Follows the Pictures folder if it was moved (e.g. to OneDrive).
+pub fn default_save_dir() -> Option<PathBuf> {
     unsafe {
         let mut p = null_mut();
         let hr = SHGetKnownFolderPath(&FOLDERID_Pictures, 0, null_mut(), &mut p);

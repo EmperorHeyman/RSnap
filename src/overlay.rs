@@ -15,7 +15,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::w;
 
-use crate::{capture, config, glow, hook, popup};
+use crate::{capture, config, glow, hook, popup, settings};
 
 const MK_SHIFT: usize = 0x0004;
 const MK_CONTROL: usize = 0x0008;
@@ -34,6 +34,8 @@ thread_local! {
     /// Virtual screen. The origin is negative when a monitor sits left of or above the primary.
     static BOUNDS: Cell<RECT> = const { Cell::new(RECT { left: 0, top: 0, right: 0, bottom: 0 }) };
     static ANCHOR: Cell<Option<POINT>> = const { Cell::new(None) };
+    /// Opened with the text hotkey: release gives text whatever keys are held.
+    static TEXT_MODE: Cell<bool> = const { Cell::new(false) };
 }
 
 pub fn register(hinst: HINSTANCE) {
@@ -49,11 +51,12 @@ pub fn register(hinst: HINSTANCE) {
     }
 }
 
-pub fn start() {
+pub fn start(text: bool) {
     if hook::ACTIVE.swap(true, Relaxed) {
         return;
     }
     popup::close();
+    TEXT_MODE.set(text);
     unsafe {
         let b = RECT {
             left: GetSystemMetrics(SM_XVIRTUALSCREEN),
@@ -99,12 +102,13 @@ pub fn cancel() {
     hook::ACTIVE.store(false, Relaxed);
 }
 
-/// Shift asks for text and wins over Ctrl.
-fn output(ctrl: bool, shift: bool) -> Output {
-    if shift {
+/// One release key asks for text, the other saves; text wins when both are held.
+fn output(ctrl: bool, shift: bool, shift_reads_text: bool) -> Output {
+    let (text, save) = if shift_reads_text { (shift, ctrl) } else { (ctrl, shift) };
+    if text {
         Output::Text
     } else {
-        Output::Image { save: ctrl }
+        Output::Image { save }
     }
 }
 
@@ -172,7 +176,12 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 if let Some(a) = ANCHOR.take() {
                     let ctrl = wp & MK_CONTROL != 0 || GetAsyncKeyState(VK_CONTROL as i32) < 0;
                     let shift = wp & MK_SHIFT != 0 || GetAsyncKeyState(VK_SHIFT as i32) < 0;
-                    finish(selection(a, to_screen(lp)), output(ctrl, shift));
+                    let out = if TEXT_MODE.get() {
+                        Output::Text
+                    } else {
+                        output(ctrl, shift, settings::current().shift_reads_text)
+                    };
+                    finish(selection(a, to_screen(lp)), out);
                 }
             }
             WM_RBUTTONDOWN => cancel(),
@@ -194,9 +203,17 @@ mod tests {
 
     #[test]
     fn release_keys_pick_the_output() {
-        assert_eq!(output(false, false), Output::Image { save: false });
-        assert_eq!(output(true, false), Output::Image { save: true });
-        assert_eq!(output(false, true), Output::Text);
-        assert_eq!(output(true, true), Output::Text);
+        // Default: Ctrl saves, Shift reads text, and text wins when both are held.
+        assert_eq!(output(false, false, true), Output::Image { save: false });
+        assert_eq!(output(true, false, true), Output::Image { save: true });
+        assert_eq!(output(false, true, true), Output::Text);
+        assert_eq!(output(true, true, true), Output::Text);
+    }
+
+    #[test]
+    fn swapped_release_keys() {
+        assert_eq!(output(false, true, false), Output::Image { save: true });
+        assert_eq!(output(true, false, false), Output::Text);
+        assert_eq!(output(true, true, false), Output::Text);
     }
 }

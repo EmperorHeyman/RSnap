@@ -7,9 +7,11 @@ mod encode;
 mod files;
 mod glow;
 mod hook;
+mod hotkey;
 mod ocr;
 mod overlay;
 mod popup;
+mod settings;
 mod tray;
 
 use std::ffi::c_void;
@@ -28,11 +30,14 @@ use windows_sys::Win32::System::Threading::{
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::w;
 
+/// wParam 1 opens the crosshair in text mode.
 pub const WM_APP_SNIP: u32 = WM_APP + 1;
 pub const WM_APP_CANCEL: u32 = WM_APP + 2;
 pub const WM_APP_TRAY: u32 = WM_APP + 3;
 /// From the OCR worker: lParam is a `Box<(String, RECT)>` for the popup.
 pub const WM_APP_OCR: u32 = WM_APP + 4;
+/// From the keyboard hook to the settings window: wParam is a packed `Hotkey`, 0 to clear.
+pub const WM_APP_KEYREC: u32 = WM_APP + 5;
 
 /// The hidden main window. The keyboard hook and the OCR worker post to it.
 pub static MAIN_WINDOW: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
@@ -73,6 +78,7 @@ fn main() {
             null(),
         );
         MAIN_WINDOW.store(hwnd, Relaxed);
+        settings::load();
         tray::init(hwnd, hinst);
         hook::install();
         trim();
@@ -92,7 +98,7 @@ fn main() {
 unsafe extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     unsafe {
         match msg {
-            WM_APP_SNIP => overlay::start(),
+            WM_APP_SNIP => overlay::start(wp == 1),
             // Esc: whichever of the crosshair and the text popup is up.
             WM_APP_CANCEL => {
                 overlay::cancel();
@@ -122,7 +128,7 @@ pub fn deliver(shot: capture::Shot, save: bool) {
         .flatten()
         .and_then(|dir| files::write(&dir, &name, &png))
         .or_else(|| files::write(&files::temp_dir(), &name, &png));
-    clipboard::set(px, w, h, &png, file.as_deref());
+    clipboard::set(px, w, h, &png, file.as_deref(), settings::current().clipboard);
 
     drop(png);
     drop(shot);
@@ -132,7 +138,8 @@ pub fn deliver(shot: capture::Shot, save: bool) {
 
 /// The Shift-release worker: OCR, text on the clipboard, then the popup on the main thread.
 pub fn deliver_text(shot: capture::Shot, sel: RECT) {
-    let text = ocr::recognize(shot.pixels(), shot.w as u32, shot.h as u32);
+    let lang = settings::current().ocr_language;
+    let text = ocr::recognize(shot.pixels(), shot.w as u32, shot.h as u32, lang.as_deref());
     drop(shot);
     match text {
         Some(text) => {

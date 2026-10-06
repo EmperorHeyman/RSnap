@@ -1,10 +1,18 @@
-//! All settings live here. Change a value, rebuild, done.
+//! Defaults and tuning. The hotkeys, release keys, glow colour and thickness, clipboard mode,
+//! save folder and OCR language start from these and are changed in the settings window;
+//! the rest only change here, with a rebuild.
+
+use crate::hotkey::{Hotkey, SHIFT, WIN};
+
+pub const SNIP_HOTKEY: Hotkey = Hotkey::new(WIN | SHIFT, b'S' as u16);
+/// Opens the crosshair in text mode: release always gives text.
+pub const TEXT_HOTKEY: Option<Hotkey> = Some(Hotkey::new(WIN | SHIFT, b'T' as u16));
 
 /// Glow colour as 0x00BBGGRR. `None` = your Windows accent colour (falls back to blue if it's too dark to see).
 pub const GLOW_COLOR: Option<u32> = Some(0x00FF_A82F);
-/// Total glow thickness outside the selection, in px at 100% scaling.
+/// Total glow thickness outside the selection, in px at 100% scaling ("Normal" in settings).
 pub const GLOW_SIZE: f32 = 10.0;
-/// Solid line hugging the selection, in px at 100% scaling.
+/// Solid line hugging the selection, in px at 100% scaling ("Normal" in settings).
 pub const GLOW_CORE: f32 = 2.0;
 /// Opacity of the solid line, and where the soft falloff starts (0-255).
 pub const GLOW_CORE_ALPHA: f32 = 235.0;
@@ -39,7 +47,7 @@ pub const POPUP_MIN_W: i32 = 240;
 pub const POPUP_MAX_W: i32 = 640;
 pub const POPUP_MAX_LINES: i32 = 12;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum ClipboardMode {
     /// Named file, then image (PNG + DIB).

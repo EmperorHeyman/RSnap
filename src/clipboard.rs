@@ -15,10 +15,10 @@ use windows_sys::Win32::UI::Shell::DROPFILES;
 use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, HWND_MESSAGE};
 use windows_sys::w;
 
-use crate::config::{CLIPBOARD, ClipboardMode};
+use crate::config::ClipboardMode;
 use crate::encode;
 
-pub fn set(px: &[u8], w: u32, h: u32, png: &[u8], file: Option<&Path>) -> bool {
+pub fn set(px: &[u8], w: u32, h: u32, png: &[u8], file: Option<&Path>, mode: ClipboardMode) -> bool {
     with_clipboard(|| unsafe {
         let put_file = |f: &Path| {
             put(CF_HDROP as u32, hdrop(f));
@@ -31,7 +31,7 @@ pub fn set(px: &[u8], w: u32, h: u32, png: &[u8], file: Option<&Path>) -> bool {
             put(RegisterClipboardFormatW(w!("PNG")), global(png));
             put(CF_DIB as u32, encode::dib(px, w, h));
         };
-        match (CLIPBOARD, file) {
+        match (mode, file) {
             (_, None) => put_image(),
             (ClipboardMode::FileFirst, Some(f)) => {
                 put_file(f);

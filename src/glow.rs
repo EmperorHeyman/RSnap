@@ -12,7 +12,8 @@ use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, 
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::w;
 
-use crate::config::{GLOW_COLOR, GLOW_CORE, GLOW_CORE_ALPHA, GLOW_FADE_ALPHA, GLOW_SIZE};
+use crate::config::{GLOW_CORE_ALPHA, GLOW_FADE_ALPHA};
+use crate::settings;
 
 const FALLBACK_COLOR: u32 = 0x00FF_A82F;
 
@@ -123,12 +124,14 @@ fn accent_color() -> u32 {
 }
 
 pub fn create(dpi: u32, max_w: i32, max_h: i32) {
+    let s = settings::current();
+    let (glow_size, glow_core) = s.thickness.glow();
     let scale = dpi.max(96) as f32 / 96.0;
-    let size = (GLOW_SIZE * scale).round().max(2.0);
-    let core = (GLOW_CORE * scale).max(1.0);
+    let size = (glow_size * scale).round().max(2.0);
+    let core = (glow_core * scale).max(1.0);
     let m = size as i32;
 
-    let c = GLOW_COLOR.unwrap_or_else(accent_color);
+    let c = s.glow_color.unwrap_or_else(accent_color);
     let (r, g, b) = (
         (c & 0xFF) as f32,
         ((c >> 8) & 0xFF) as f32,
