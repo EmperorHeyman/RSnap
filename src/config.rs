@@ -32,6 +32,13 @@ pub const MASK_KEY: u16 = 0xE8;
 /// 13 px text read as nothing at 1x and perfectly at 2x; 3x and 4x read worse than 2x.
 pub const OCR_SCALE: f32 = 2.0;
 
+/// The popup that shows recognized text: font size in points, width limits in px at 100% scaling,
+/// and how many lines it shows before scrolling.
+pub const POPUP_FONT_PT: i32 = 10;
+pub const POPUP_MIN_W: i32 = 240;
+pub const POPUP_MAX_W: i32 = 640;
+pub const POPUP_MAX_LINES: i32 = 12;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum ClipboardMode {

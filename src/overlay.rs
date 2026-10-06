@@ -15,7 +15,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::w;
 
-use crate::{capture, config, glow, hook};
+use crate::{capture, config, glow, hook, popup};
 
 const MK_SHIFT: usize = 0x0004;
 const MK_CONTROL: usize = 0x0008;
@@ -53,6 +53,7 @@ pub fn start() {
     if hook::ACTIVE.swap(true, Relaxed) {
         return;
     }
+    popup::close();
     unsafe {
         let b = RECT {
             left: GetSystemMetrics(SM_XVIRTUALSCREEN),

@@ -9,6 +9,7 @@ mod glow;
 mod hook;
 mod ocr;
 mod overlay;
+mod popup;
 mod tray;
 
 use std::ffi::c_void;
@@ -54,6 +55,7 @@ fn main() {
         RegisterClassW(&class);
         overlay::register(hinst);
         glow::register(hinst);
+        popup::register(hinst);
 
         // Hidden top-level window, not message-only: it has to hear the TaskbarCreated broadcast.
         let hwnd = CreateWindowExW(
@@ -77,7 +79,11 @@ fn main() {
 
         let mut msg = zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
-            DispatchMessageW(&msg);
+            if !popup::pre_translate(&msg) {
+                // The popup's edit box needs WM_CHAR to take typing.
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
         tray::remove();
     }
@@ -89,8 +95,7 @@ unsafe extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             WM_APP_SNIP => overlay::start(),
             WM_APP_CANCEL => overlay::cancel(),
             WM_APP_TRAY => tray::on_event(hwnd, lp),
-            // Freed here until the popup exists.
-            WM_APP_OCR => drop(Box::from_raw(lp as *mut (String, RECT))),
+            WM_APP_OCR => popup::on_text(lp),
             WM_DESTROY => PostQuitMessage(0),
             _ if tray::is_taskbar_created(msg) => tray::add(),
             _ => return DefWindowProcW(hwnd, msg, wp, lp),
